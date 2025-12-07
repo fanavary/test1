@@ -1,0 +1,52 @@
+name: Build Windows EXE (auto-detect .py)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+
+      - name: Find python entrypoint
+        id: findpy
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter *.py -Recurse -File |
+               Where-Object { $_.Name -ne 'setup.py' -and $_.Name -ne 'setup.cfg' } |
+               Select-Object -First 1
+          if (-not $f) { Write-Error "No .py file found in repo"; exit 1 }
+          $relative = $f.FullName.Substring($env:GITHUB_WORKSPACE.Length + 1)
+          echo "file=$relative" >> $env:GITHUB_OUTPUT
+
+      - name: Show chosen file
+        run: echo "Building file: ${{ steps.findpy.outputs.file }}"
+
+      - name: Build with PyInstaller (--onefile)
+        shell: pwsh
+        run: |
+          $entry = "${{ steps.findpy.outputs.file }}"
+          pyinstaller --onefile --noconfirm --clean $entry
+
+      - name: List dist folder
+        run: dir dist
+
+      - name: Upload artifact (exe)
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-build
+          path: dist/**
